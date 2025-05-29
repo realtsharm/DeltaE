@@ -1,0 +1,59 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+from skimage import color
+import imageio
+
+# Load images
+image1 = imageio.imread(r'C:/Users/Tamanna/Desktop/test case 6/SSIM Instrument Restart/4x- trial 1/autofocus/tc_3c_autofocus0.jpg')
+image2 = imageio.imread(r'C:/Users/Tamanna/Desktop/test case 6/SSIM Instrument Restart/4x- trial 1/autofocus/tc_3c_autofocus1.jpg')
+
+# Convert images to grayscale for alignment
+gray1 = cv2.cvtColor(image1, cv2.COLOR_RGB2GRAY)
+gray2 = cv2.cvtColor(image2, cv2.COLOR_RGB2GRAY)
+
+# Define warp matrix and criteria for alignment
+warp_matrix = np.eye(2, 3, dtype=np.float32)  # Affine transformation matrix
+criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-6)
+
+# Align image2 to image1
+cc, warp_matrix = cv2.findTransformECC(gray1, gray2, warp_matrix, cv2.MOTION_TRANSLATION, criteria)
+aligned_image2 = cv2.warpAffine(image2, warp_matrix, (image2.shape[1], image2.shape[0]), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+
+# Extract translation shifts
+x_shift = warp_matrix[0, 2]  # Translation in X direction
+y_shift = warp_matrix[1, 2]  # Translation in Y direction
+
+# Convert aligned images to Lab color space
+Lab1 = color.rgb2lab(image1)
+Lab2 = color.rgb2lab(aligned_image2)
+
+# Compute Delta E for the entire image
+DeltaE_full = np.sqrt((Lab1 - Lab2) ** 2).sum(axis=-1)
+avg_deltaE_full = DeltaE_full.mean()  # Compute average Delta E
+
+# Create subplot
+fig, axes = plt.subplots(1, 3, figsize=(12, 6))
+
+# Show images
+axes[0].imshow(image1)
+axes[0].set_title("Image 1")
+axes[0].axis("off")
+
+axes[1].imshow(aligned_image2)
+axes[1].set_title("Aligned Image 2")
+axes[1].axis("off")
+
+# Show full image Delta E heatmap
+mappable = axes[2].imshow(DeltaE_full, cmap='inferno')
+axes[2].set_title("Delta E (Full Image)")
+axes[2].axis("off")
+plt.colorbar(mappable, orientation="horizontal", ax=axes[2])
+
+# **Add Delta E and alignment correction values**
+fig.text(0.5, 0.02, f"Average Delta E (Full Image): {avg_deltaE_full:.2f}\nAlignment Shift: X = {x_shift:.2f} px, Y = {y_shift:.2f} px", 
+         fontsize=12, ha='center')
+
+# Show plot
+plt.tight_layout()
+plt.show()
