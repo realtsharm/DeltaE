@@ -1,0 +1,71 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+from skimage import color
+import imageio
+
+# Load images
+image1 = imageio.imread(r'c:\Users\Tamanna\Desktop\test case 6\SSIM Instrument Restart\4x trial 2\autofocus\tc_3c_autofocus1.jpg')
+image2 = imageio.imread(r'C:/Users/Tamanna/Desktop/test case 6/SSIM Instrument Restart/4x- trial 1/autofocus/tc_3c_autofocus1.jpg')
+
+# Convert images to grayscale for alignment
+gray1 = cv2.cvtColor(image1, cv2.COLOR_RGB2GRAY)
+gray2 = cv2.cvtColor(image2, cv2.COLOR_RGB2GRAY)
+
+# Define warp matrix and criteria for alignment
+warp_matrix = np.eye(2, 3, dtype=np.float32)  # Affine transformation matrix
+criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-6)
+
+# Align image2 to image1
+cc, warp_matrix = cv2.findTransformECC(gray1, gray2, warp_matrix, cv2.MOTION_TRANSLATION, criteria)
+aligned_image2 = cv2.warpAffine(image2, warp_matrix, (image2.shape[1], image2.shape[0]), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+
+# Extract translation shifts
+x_shift = warp_matrix[0, 2]  # Translation in X direction
+y_shift = warp_matrix[1, 2]  # Translation in Y direction
+
+# Convert aligned images to Lab color space
+Lab1 = color.rgb2lab(image1)
+Lab2 = color.rgb2lab(aligned_image2)
+
+# Define focus area (coordinates)
+start_x, start_y, width, height = 50, 50, 200, 200
+
+# Extract the focus area from both aligned images
+Lab1_focus = Lab1[start_y:start_y+height, start_x:start_x+width]
+Lab2_focus = Lab2[start_y:start_y+height, start_x:start_x+width]
+
+# Compute Delta E **only in the focus area**
+DeltaE_focus = np.sqrt((Lab1_focus - Lab2_focus) ** 2).sum(axis=-1)
+avg_deltaE_focus = DeltaE_focus.mean()  # Compute average Delta E for the slice
+
+# Draw border on full images to highlight compared region
+border_thickness = 5
+cv2.rectangle(image1, (start_x, start_y), (start_x + width, start_y + height), (255, 0, 0), border_thickness)
+cv2.rectangle(aligned_image2, (start_x, start_y), (start_x + width, start_y + height), (255, 0, 0), border_thickness)
+
+# Create subplot
+fig, axes = plt.subplots(1, 3, figsize=(12, 6))
+
+# Show full images with highlighted region
+axes[0].imshow(image1)
+axes[0].set_title("Image 1 (Highlighted Area)")
+axes[0].axis("off")
+
+axes[1].imshow(aligned_image2)
+axes[1].set_title("Aligned Image 2 (Highlighted Area)")
+axes[1].axis("off")
+
+# Show Delta E heatmap for the **selected region only**
+mappable = axes[2].imshow(DeltaE_focus, cmap='inferno')
+axes[2].set_title("Delta E in Focus Area")
+axes[2].axis("off")
+plt.colorbar(mappable, orientation="horizontal", ax=axes[2])
+
+# **Add Delta E & Alignment Correction Values below the images**
+fig.text(0.5, 0.02, f"Average Delta E (Focus Area): {avg_deltaE_focus:.2f}\nAlignment Shift: X = {x_shift:.2f} px, Y = {y_shift:.2f} px", 
+         fontsize=12, ha='center')
+
+# Show plot
+plt.tight_layout()
+plt.show()
