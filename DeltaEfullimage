@@ -5,8 +5,8 @@ from skimage import color
 import imageio
 
 # Load images
-image1 = imageio.imread(r'C:/Users/Tamanna/Desktop/test case 6/SSIM Instrument Restart/4x- trial 1/autofocus/tc_3c_autofocus0.jpg')
-image2 = imageio.imread(r'C:/Users/Tamanna/Desktop/test case 6/SSIM Instrument Restart/4x- trial 1/autofocus/tc_3c_autofocus1.jpg')
+image1 = imageio.imread(r'c:\Users\Tamanna\Desktop\test case 6\SSIM Instrument Restart\4x- trial 1\autofocus\tc_3c_autofocus0.jpg')
+image2 = imageio.imread(r'c:\Users\Tamanna\Desktop\test case 6\SSIM Instrument Restart\4x- trial 1\autofocus\tc_3c_autofocus1.jpg')
 
 # Convert images to grayscale for alignment
 gray1 = cv2.cvtColor(image1, cv2.COLOR_RGB2GRAY)
@@ -20,72 +20,101 @@ criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-6)
 cc, warp_matrix = cv2.findTransformECC(gray1, gray2, warp_matrix, cv2.MOTION_TRANSLATION, criteria)
 aligned_image2 = cv2.warpAffine(image2, warp_matrix, (image2.shape[1], image2.shape[0]), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
 
-# Extract translation shifts
-x_shift = warp_matrix[0, 2]  # Translation in X direction
-y_shift = warp_matrix[1, 2]  # Translation in Y direction
+# Keep only RGB channels (drop alpha)
+image1_rgb = image1[..., :3]
+aligned_image2_rgb = aligned_image2[..., :3]
 
-# Convert aligned images to Lab color space
-Lab1 = color.rgb2lab(image1)
-Lab2 = color.rgb2lab(aligned_image2)
+# Convert images to Lab color space
+Lab1 = color.rgb2lab(image1_rgb)
+Lab2 = color.rgb2lab(aligned_image2_rgb)
 
-# Compute Delta E for the entire image
-DeltaE_full = np.sqrt((Lab1 - Lab2) ** 2).sum(axis=-1)
-avg_deltaE_full = DeltaE_full.mean()  # Compute average Delta E
+# **NumPy-based CIEDE2000 formula**
+def ciede2000(lab1, lab2):
+    L1, a1, b1 = lab1[..., 0], lab1[..., 1], lab1[..., 2]
+    L2, a2, b2 = lab2[..., 0], lab2[..., 1], lab2[..., 2]
+    
+    C1 = np.sqrt(a1**2 + b1**2)
+    C2 = np.sqrt(a2**2 + b2**2)
+    avg_C = (C1 + C2) / 2
 
-# **Find max and min values**
+    G = 0.5 * (1 - np.sqrt(avg_C**7 / (avg_C**7 + 25**7)))
+    a1_prime = (1 + G) * a1
+    a2_prime = (1 + G) * a2
+    C1_prime = np.sqrt(a1_prime**2 + b1**2)
+    C2_prime = np.sqrt(a2_prime**2 + b2**2)
+
+    delta_L = L2 - L1
+    delta_C = C2_prime - C1_prime
+    delta_H = np.sqrt(np.maximum(0, (a2_prime - a1_prime)**2 + (b2 - b1)**2 - delta_C**2))
+
+    avg_L = (L1 + L2) / 2
+    avg_C_prime = (C1_prime + C2_prime) / 2
+
+    T = 1 - 0.17 * np.cos(np.radians(avg_C_prime - 30)) + 0.24 * np.cos(np.radians(2 * avg_C_prime)) + \
+        0.32 * np.cos(np.radians(3 * avg_C_prime + 6)) - 0.20 * np.cos(np.radians(4 * avg_C_prime - 63))
+
+    delta_theta = 30 * np.exp(-((avg_C_prime - 275) / 25)**2)
+    R_C = 2 * np.sqrt(avg_C_prime**7 / (avg_C_prime**7 + 25**7))
+    S_L = 1 + (0.015 * (avg_L - 50)**2) / np.sqrt(20 + (avg_L - 50)**2)
+    S_C = 1 + 0.045 * avg_C_prime
+    S_H = 1 + 0.015 * avg_C_prime * T
+    R_T = -np.sin(np.radians(2 * delta_theta)) * R_C
+
+    return np.sqrt((delta_L / S_L)**2 + (delta_C / S_C)**2 + (delta_H / S_H)**2 + R_T * (delta_C / S_C) * (delta_H / S_H))
+
+# Compute Delta E for entire image **using NumPy**
+DeltaE_full = ciede2000(Lab1, Lab2)
+
+# Replace NaN values with 0 for safe computation
+DeltaE_full = np.nan_to_num(DeltaE_full, nan=0.0)
+
+# Compute statistics
+avg_deltaE_full = DeltaE_full.mean()
 max_deltaE = np.max(DeltaE_full)
 min_deltaE = np.min(DeltaE_full)
-
-# **Find locations**
 max_location = np.unravel_index(np.argmax(DeltaE_full), DeltaE_full.shape)
 min_location = np.unravel_index(np.argmin(DeltaE_full), DeltaE_full.shape)
 
-# **Print results in terminal**
-print(f"\nMax Delta E: {max_deltaE:.2f} at location {max_location}")
-print(f"Min Delta E: {min_deltaE:.2f} at location {min_location}")
+# Print results
+print(f"\nMax Delta E (CIEDE2000): {max_deltaE:.2f} at location {max_location}")
+print(f"Min Delta E (CIEDE2000): {min_deltaE:.2f} at location {min_location}")
 
-# **Generate histogram values for table**
-hist_values, bin_edges = np.histogram(DeltaE_full.ravel(), bins=10)  # Using 10 bins for readability
+# Generate histogram values
+hist_values, bin_edges = np.histogram(DeltaE_full.ravel(), bins=10)
 
-# **Print table with Delta E frequency counts**
+# Print table
 print("\nDelta E Range | Pixel Count")
 print("-" * 30)
 for i in range(len(bin_edges) - 1):
     print(f"{bin_edges[i]:.2f} - {bin_edges[i+1]:.2f} | {hist_values[i]}")
 
-# **Create subplot**
-fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Adjusted layout
+# Visualization
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-# Show images
 axes[0, 0].imshow(image1)
 axes[0, 0].set_title("Image 1")
 axes[0, 0].axis("off")
 
-axes[0, 1].imshow(aligned_image2)
+axes[0, 1].imshow(aligned_image2_rgb)
 axes[0, 1].set_title("Aligned Image 2")
 axes[0, 1].axis("off")
 
-# Show full image Delta E heatmap
 mappable = axes[1, 0].imshow(DeltaE_full, cmap='inferno')
-axes[1, 0].set_title("Delta E (Full Image)")
+axes[1, 0].set_title("Delta E (CIEDE2000)")
 axes[1, 0].axis("off")
 plt.colorbar(mappable, orientation="horizontal", ax=axes[1, 0])
 
-# **Highlight max & min points**
 axes[1, 0].scatter(max_location[1], max_location[0], color='blue', marker='o', label=f"Max ({max_deltaE:.2f})")
 axes[1, 0].scatter(min_location[1], min_location[0], color='green', marker='x', label=f"Min ({min_deltaE:.2f})")
 axes[1, 0].legend(loc='upper right')
 
-# **Generate histogram plot**
 axes[1, 1].hist(DeltaE_full.ravel(), bins=50, color='purple', alpha=0.75)
-axes[1, 1].set_title("Delta E Value Distribution")
+axes[1, 1].set_title("Delta E (CIEDE2000) Value Distribution")
 axes[1, 1].set_xlabel("Delta E Value")
 axes[1, 1].set_ylabel("Frequency")
 
-# **Add Delta E and alignment correction values**
-fig.text(0.5, 0.02, f"Average Delta E (Full Image): {avg_deltaE_full:.2f}\nAlignment Shift: X = {x_shift:.2f} px, Y = {y_shift:.2f} px", 
+fig.text(0.5, 0.02, f"Avg Delta E (CIEDE2000): {avg_deltaE_full:.2f}\nShift: X={warp_matrix[0,2]:.2f}px, Y={warp_matrix[1,2]:.2f}px", 
          fontsize=12, ha='center')
 
-# Show plot
 plt.tight_layout()
 plt.show()
