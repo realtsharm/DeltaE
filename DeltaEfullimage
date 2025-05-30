@@ -32,23 +32,55 @@ Lab2 = color.rgb2lab(aligned_image2)
 DeltaE_full = np.sqrt((Lab1 - Lab2) ** 2).sum(axis=-1)
 avg_deltaE_full = DeltaE_full.mean()  # Compute average Delta E
 
-# Create subplot
-fig, axes = plt.subplots(1, 3, figsize=(12, 6))
+# **Find max and min values**
+max_deltaE = np.max(DeltaE_full)
+min_deltaE = np.min(DeltaE_full)
+
+# **Find locations**
+max_location = np.unravel_index(np.argmax(DeltaE_full), DeltaE_full.shape)
+min_location = np.unravel_index(np.argmin(DeltaE_full), DeltaE_full.shape)
+
+# **Print results in terminal**
+print(f"\nMax Delta E: {max_deltaE:.2f} at location {max_location}")
+print(f"Min Delta E: {min_deltaE:.2f} at location {min_location}")
+
+# **Generate histogram values for table**
+hist_values, bin_edges = np.histogram(DeltaE_full.ravel(), bins=10)  # Using 10 bins for readability
+
+# **Print table with Delta E frequency counts**
+print("\nDelta E Range | Pixel Count")
+print("-" * 30)
+for i in range(len(bin_edges) - 1):
+    print(f"{bin_edges[i]:.2f} - {bin_edges[i+1]:.2f} | {hist_values[i]}")
+
+# **Create subplot**
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Adjusted layout
 
 # Show images
-axes[0].imshow(image1)
-axes[0].set_title("Image 1")
-axes[0].axis("off")
+axes[0, 0].imshow(image1)
+axes[0, 0].set_title("Image 1")
+axes[0, 0].axis("off")
 
-axes[1].imshow(aligned_image2)
-axes[1].set_title("Aligned Image 2")
-axes[1].axis("off")
+axes[0, 1].imshow(aligned_image2)
+axes[0, 1].set_title("Aligned Image 2")
+axes[0, 1].axis("off")
 
 # Show full image Delta E heatmap
-mappable = axes[2].imshow(DeltaE_full, cmap='inferno')
-axes[2].set_title("Delta E (Full Image)")
-axes[2].axis("off")
-plt.colorbar(mappable, orientation="horizontal", ax=axes[2])
+mappable = axes[1, 0].imshow(DeltaE_full, cmap='inferno')
+axes[1, 0].set_title("Delta E (Full Image)")
+axes[1, 0].axis("off")
+plt.colorbar(mappable, orientation="horizontal", ax=axes[1, 0])
+
+# **Highlight max & min points**
+axes[1, 0].scatter(max_location[1], max_location[0], color='blue', marker='o', label=f"Max ({max_deltaE:.2f})")
+axes[1, 0].scatter(min_location[1], min_location[0], color='green', marker='x', label=f"Min ({min_deltaE:.2f})")
+axes[1, 0].legend(loc='upper right')
+
+# **Generate histogram plot**
+axes[1, 1].hist(DeltaE_full.ravel(), bins=50, color='purple', alpha=0.75)
+axes[1, 1].set_title("Delta E Value Distribution")
+axes[1, 1].set_xlabel("Delta E Value")
+axes[1, 1].set_ylabel("Frequency")
 
 # **Add Delta E and alignment correction values**
 fig.text(0.5, 0.02, f"Average Delta E (Full Image): {avg_deltaE_full:.2f}\nAlignment Shift: X = {x_shift:.2f} px, Y = {y_shift:.2f} px", 
